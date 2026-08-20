@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "bicep lint storage",
+      "type": "shell",
+      "command": "az bicep lint --file day-01/samples/storage.bicep",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "bicep build storage",
+      "type": "shell",
+      "command": "az bicep build --file day-01/samples/storage.bicep",
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}
