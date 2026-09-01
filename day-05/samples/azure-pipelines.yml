@@ -1,0 +1,78 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+parameters:
+  - name: resourceGroupName
+    displayName: Target resource group
+    type: string
+    default: rg-bicep-uXX
+
+variables:
+  - group: vg-bicep-class
+  - name: resourceGroupName
+    value: ${{ parameters.resourceGroupName }}
+
+stages:
+  - stage: Validate
+    displayName: Build and What-If
+    jobs:
+      - job: ValidateBicep
+        displayName: az bicep build + what-if
+        steps:
+          - checkout: self
+          - task: AzureCLI@2
+            displayName: Bicep build
+            inputs:
+              azureSubscription: sc-azure-bicep
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: '$(System.DefaultWorkingDirectory)'
+              inlineScript: |
+                set -euo pipefail
+                az bicep lint --file main.bicep
+                az bicep build --file main.bicep
+          - task: AzureCLI@2
+            displayName: What-If (dev)
+            inputs:
+              azureSubscription: sc-azure-bicep
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: '$(System.DefaultWorkingDirectory)'
+              inlineScript: |
+                set -euo pipefail
+                az deployment group what-if \
+                  --resource-group "$(resourceGroupName)" \
+                  --parameters dev.bicepparam
+
+  - stage: DeployDev
+    displayName: Deploy dev
+    dependsOn: Validate
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: Deploy
+        displayName: az deployment group create
+        steps:
+          - checkout: self
+          - task: AzureCLI@2
+            displayName: Deploy dev.bicepparam
+            inputs:
+              azureSubscription: sc-azure-bicep
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: '$(System.DefaultWorkingDirectory)'
+              inlineScript: |
+                set -euo pipefail
+                az deployment group create \
+                  --resource-group "$(resourceGroupName)" \
+                  --name main \
+                  --parameters dev.bicepparam

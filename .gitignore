@@ -2,8 +2,8 @@ internal/
 
 day-01.zip
 
-day-05/
 day-06/
+extras/
 pipelines/
 infra/main.bicep
 infra/modules/
