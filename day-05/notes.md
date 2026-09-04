@@ -17,7 +17,8 @@ A pipeline is YAML **in the repo**. A run is a job on a Microsoft-hosted agent (
 | Event | What runs |
 |-------|-----------|
 | Push / merge to `main` | Validate, then **DeployDev** |
-| Pull request into `main` | **Validate only** (`DeployDev` skipped) |
+| Push to `feature/*` | **Validate** only |
+| Pull request into `main` (from `feature/*`) | **Validate** only (`DeployDev` skipped — source branch is not `main`) |
 
 That split is CI (every PR) without deploying from the feature branch.
 
@@ -32,10 +33,12 @@ trigger:
   branches:
     include:
       - main
+      - feature/*
 pr:
   branches:
     include:
       - main
+      - feature/*
 
 pool:
   vmImage: ubuntu-latest
@@ -46,9 +49,17 @@ parameters:
     default: rg-bicep-uXX   # change from rg-bicep-demo
 ```
 
-`variables: - group: vg-bicep-class` attaches the class variable group. Storage-only deploy does not read a password from it today.
+Day 4 branches use the `feature/*` prefix (for example `feature/access-tier`). Pushes to those branches and pull requests into `main` run **Validate**. **DeployDev** runs only when the pipeline source branch is `main` (after merge), not on a `feature/*` branch and not during a PR build.
 
-Hands-on: `cat pipelines/azure-pipelines.yml`.
+`variables: - group: vg-bicep-class` attaches the class Library variable group. That group holds shared values for every pipeline in the class. Today it includes `deployLocation` = `eastus`. The What-If and DeployDev steps pass it into Bicep as:
+
+```bash
+--parameters location="$(deployLocation)"
+```
+
+`$(deployLocation)` comes from the variable group, not from the YAML file and not from your laptop. Seat-specific values (resource group) stay as a pipeline **parameter**. Secrets (for example a VM password) can also live in a variable group — marked secret and never printed in logs. Today’s storage deploy does not need a password.
+
+Hands-on: Pipelines → Library → `vg-bicep-class`, then `cat pipelines/azure-pipelines.yml`.
 
 ### Service Connection concept
 
@@ -64,15 +75,15 @@ That name is an Azure Resource Manager service connection already created in the
 flowchart LR
   pr["PR into main"] --> v["Validate: lint + build + what-if"]
   main["Push / merge to main"] --> v
-  v --> d["DeployDev — skipped on PullRequest"]
+  v --> d["DeployDev — main branch only"]
 ```
 
 | Stage | Tasks | When |
 |-------|--------|------|
-| Validate | `az bicep lint`, `az bicep build`, `az deployment group what-if` with `dev.bicepparam` | Always (PR and `main`) |
-| DeployDev | `az deployment group create` with `dev.bicepparam` | `main` only (`condition: ne(Build.Reason, PullRequest)`) |
+| Validate | `az bicep lint`, `az bicep build`, What-If with `dev.bicepparam` + `location` from the variable group | Always (PR and `main`) |
+| DeployDev | `az deployment group create` with the same param file + `location` from the variable group | `main` only (`condition: eq(Build.SourceBranch, refs/heads/main)`) |
 
-`DeployDev` `dependsOn` Validate. The pipeline deploys `main.bicep` with `dev.bicepparam` (Day 4 files in `iac-uXX`).
+`DeployDev` `dependsOn` Validate. The pipeline deploys `main.bicep` with `dev.bicepparam` (Day 4 files in `iac-uXX`) and overrides `location` from `vg-bicep-class`.
 
 ### What-If deployments
 
@@ -120,11 +131,11 @@ Red stage → open the **task log** (not only the stage name).
 | Bicep build / lint red | Syntax or analyzer in `main.bicep` |
 | What-If red | Service connection RBAC, wrong `resourceGroupName` |
 | DeployDev red | Azure (name taken, policy on Day 6). Storage name stays `stb26uXX`; if the name is taken globally, change the class prefix |
-| DeployDev skipped | Run reason is PullRequest — expected on a PR |
+| DeployDev skipped | Source branch is `feature/*` or the run is a PR — expected until merge to `main` |
 
 ### Secure deployment considerations
 
-No passwords in YAML (`grep` should find none). Identity is the service connection. `@secure()` stays in Bicep for Day 3 compute. The variable group is where a VM password would live — not used in today’s storage create.
+No passwords in YAML (`grep` should find none). Identity is the service connection. `@secure()` stays in Bicep for Day 3 compute. Non-secret class settings (like `deployLocation`) and secrets (like a future VM password) both belong in the variable group — not hard-coded in the YAML.
 
 ---
 
@@ -135,3 +146,15 @@ Let the **main** run finish **DeployDev**. A run from a pull request stops after
 Commands: [commands.md](commands.md) — Lab 2.
 
 No GitHub Actions. No prod stage. No real approval gate.
+
+---
+
+## Optional — subscription scope
+
+Day 5 labs use **resource group** scope: the RG already exists and you run `az deployment group`.
+
+Some templates set `targetScope = 'subscription'` at the top of the file. They can create **resource groups** as resources, then (in larger templates) deploy modules into those groups with `scope: rgName`.
+
+Sample: `samples/subscription-rgs.bicep` creates `rg-bicep-uXX-sub-a` and `rg-bicep-uXX-sub-b`. CLI commands use `az deployment sub what-if` and `az deployment sub create` with `--location eastus`. See [commands.md](commands.md) — Optional section.
+
+Keep your main work in `rg-bicep-uXX`. Delete the `-sub-a` / `-sub-b` groups when finished.

@@ -2,11 +2,13 @@ trigger:
   branches:
     include:
       - main
+      - feature/*
 
 pr:
   branches:
     include:
       - main
+      - feature/*
 
 pool:
   vmImage: ubuntu-latest
@@ -21,6 +23,8 @@ variables:
   - group: vg-bicep-class
   - name: resourceGroupName
     value: ${{ parameters.resourceGroupName }}
+
+# vg-bicep-class supplies deployLocation (eastus). Per-seat RG is the parameter above.
 
 stages:
   - stage: Validate
@@ -50,14 +54,16 @@ stages:
               workingDirectory: '$(System.DefaultWorkingDirectory)'
               inlineScript: |
                 set -euo pipefail
+                echo "Using deployLocation from variable group: $(deployLocation)"
                 az deployment group what-if \
                   --resource-group "$(resourceGroupName)" \
-                  --parameters dev.bicepparam
+                  --parameters dev.bicepparam \
+                  --parameters location="$(deployLocation)"
 
   - stage: DeployDev
     displayName: Deploy dev
     dependsOn: Validate
-    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
       - job: Deploy
         displayName: az deployment group create
@@ -72,7 +78,9 @@ stages:
               workingDirectory: '$(System.DefaultWorkingDirectory)'
               inlineScript: |
                 set -euo pipefail
+                echo "Using deployLocation from variable group: $(deployLocation)"
                 az deployment group create \
                   --resource-group "$(resourceGroupName)" \
                   --name main \
-                  --parameters dev.bicepparam
+                  --parameters dev.bicepparam \
+                  --parameters location="$(deployLocation)"

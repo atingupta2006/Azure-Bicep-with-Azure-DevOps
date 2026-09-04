@@ -26,6 +26,8 @@ cp "$COURSE/day-05/samples/azure-pipelines.yml" pipelines/azure-pipelines.yml
 
 In `pipelines/azure-pipelines.yml`, set the default `resourceGroupName` to `rg-bicep-uXX`. Save.
 
+Open Pipelines → **Library** → variable group **`vg-bicep-class`**. Confirm it has `deployLocation` = `eastus`. Do not rename the group. Do not delete `deployLocation`.
+
 ```bash
 git add pipelines/azure-pipelines.yml
 git commit -m "Add Azure Pipelines YAML"
@@ -48,19 +50,20 @@ Pipelines → your pipeline → **Run pipeline** → **Run**.
 
 Open the **Validate** stage → **Bicep build** task log. Exit code must be 0.
 
-A run from a **pull request** into `main` runs Validate only. **DeployDev** is skipped on PRs.
+A run from a **pull request** (`feature/*` → `main`) runs Validate only. **DeployDev** runs only after changes are on `main`.
 
 ### Run What-If deployment
 
-Open the **What-If (dev)** task log on the same run.
+Open the **What-If (dev)** task log on the same run. Near the top you should see a line like `Using deployLocation from variable group: eastus`. That value comes from `vg-bicep-class`, then the script passes `--parameters location=eastus` into What-If.
 
-CLI equivalent from your `iac-uXX` clone (same param file the pipeline uses):
+CLI equivalent from your `iac-uXX` clone (param file plus the same location override the pipeline uses):
 
 ```bash
 cd ~/iac-uXX
 az deployment group what-if \
   --resource-group rg-bicep-uXX \
-  --parameters dev.bicepparam
+  --parameters dev.bicepparam \
+  --parameters location=eastus
 ```
 
 Throwaway What-If sample from the course folder (creates `stb26uXXq`, then delete it).
@@ -146,3 +149,56 @@ git push -u origin feature/pipeline-rerun
 ```
 
 Raise a pull request into `main`. The PR run should show Validate only (What-If may show **Modify** on SKU). Complete the PR, then confirm the **`main`** run runs Validate + **DeployDev**.
+
+---
+
+## Optional — subscription scope (two resource groups)
+
+The main labs deploy **into** your existing resource group `rg-bicep-uXX` using `az deployment group`.
+
+This optional sample deploys at **subscription** scope and **creates two new resource groups** in one template. Run it only after Labs 1–2 if you have time. Do not delete or replace `rg-bicep-uXX`.
+
+Files (course folder — keep the param file next to the `.bicep` file):
+
+```text
+day-05/samples/subscription-rgs.bicep
+day-05/samples/subscription-rgs.bicepparam
+```
+
+In `subscription-rgs.bicepparam`, replace `XX` with your seat (`owner`, RG names). Default names: `rg-bicep-uXX-sub-a` and `rg-bicep-uXX-sub-b`.
+
+```bash
+COURSE=/home/buXX/Azure-Bicep-with-Azure-DevOps
+
+az bicep lint --file "$COURSE/day-05/samples/subscription-rgs.bicep"
+az bicep build --file "$COURSE/day-05/samples/subscription-rgs.bicep"
+
+az deployment sub what-if \
+  --location eastus \
+  --parameters "$COURSE/day-05/samples/subscription-rgs.bicepparam"
+```
+
+Subscription deployments always need `--location` on the command (metadata for the deployment). What-If should show **Create** on two resource groups.
+
+Deploy:
+
+```bash
+az deployment sub create \
+  --location eastus \
+  --name subscription-rgs-uXX \
+  --parameters "$COURSE/day-05/samples/subscription-rgs.bicepparam"
+```
+
+Verify:
+
+```bash
+az group show -n rg-bicep-uXX-sub-a --query "{name:name, location:location, tags:tags}" -o json
+az group show -n rg-bicep-uXX-sub-b --query "{name:name, location:location, tags:tags}" -o json
+```
+
+When you are done, delete the two groups you created (not `rg-bicep-uXX`):
+
+```bash
+az group delete --name rg-bicep-uXX-sub-a --yes --no-wait
+az group delete --name rg-bicep-uXX-sub-b --yes --no-wait
+```
